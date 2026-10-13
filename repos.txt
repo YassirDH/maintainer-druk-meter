@@ -1,0 +1,23 @@
+# Kritieke open-source projecten die de meter volgt.
+# Eén repo per regel, in de vorm eigenaar/naam. Regels met # worden overgeslagen.
+
+# Kleine teams, enorme impact (hier zit het xz/Log4Shell-risico)
+curl/curl
+openssl/openssl
+madler/zlib
+libexpat/libexpat
+tukaani-project/xz
+apache/logging-log4j2
+psf/requests
+
+# Grote projecten waar een groot deel van het internet op draait
+python/cpython
+nodejs/node
+golang/go
+rust-lang/rust
+kubernetes/kubernetes
+numpy/numpy
+
+# Infrastructuur dicht bij gewone gebruikers
+home-assistant/core
+nextcloud/server
