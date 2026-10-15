@@ -1,0 +1,56 @@
+# Runs the honest test (test/compare.py) on GitHub,
+# so nothing has to be installed on a laptop.
+# Starts by itself when test/labels_manual.csv is uploaded or changed,
+# or manually via Actions -> "Honest test" -> Run workflow.
+
+name: Honest test
+
+on:
+  push:
+    paths:
+      - "test/labels_manual.csv"
+      - "test/labels_handmatig.csv"
+      - "test/compare.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compare
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install packages
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt sentencepiece protobuf
+
+      - name: Run the test
+        run: python test/compare.py
+
+      - name: Save results to the repo
+        run: |
+          git config user.name "pulse-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test/test_table.csv test/report.md
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          git commit -m "test: results updated"
+          git pull --rebase
+          git push
