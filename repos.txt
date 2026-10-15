@@ -1,7 +1,7 @@
-# Kritieke open-source projecten die de meter volgt.
-# Eén repo per regel, in de vorm eigenaar/naam. Regels met # worden overgeslagen.
+# Critical open-source projects the meter follows.
+# One repo per line, as owner/name. Lines starting with # are skipped.
 
-# Kleine teams, enorme impact (hier zit het xz/Log4Shell-risico)
+# Small teams, huge impact (this is where the xz / Log4Shell risk lives)
 curl/curl
 openssl/openssl
 madler/zlib
@@ -10,7 +10,7 @@ tukaani-project/xz
 apache/logging-log4j2
 psf/requests
 
-# Grote projecten waar een groot deel van het internet op draait
+# Large projects a big part of the internet runs on
 python/cpython
 nodejs/node
 golang/go
@@ -18,6 +18,6 @@ rust-lang/rust
 kubernetes/kubernetes
 numpy/numpy
 
-# Infrastructuur dicht bij gewone gebruikers
+# Infrastructure close to everyday users
 home-assistant/core
 nextcloud/server

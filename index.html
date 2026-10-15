@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maintainer Pressure Meter</title>
+<meta name="description" content="Live sentiment in the GitHub comments of critical open-source projects, for funds that support maintainers.">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #77756f;
+    --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+    --neg: #e34948; --pos: #2a78d6; --band: rgba(42,120,214,0.08); --sel: rgba(11,11,11,0.06);
+    --warn-bg: #fff6e0; --warn-ink: #5c4300; --warn-line: #f0d08a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d86;
+      --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+      --neg: #e66767; --pos: #3987e5; --band: rgba(57,135,229,0.12); --sel: rgba(255,255,255,0.07);
+      --warn-bg: #2a2310; --warn-ink: #f3dc9c; --warn-line: #5a4a1c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #8f8d86;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --neg: #e66767; --pos: #3987e5; --band: rgba(57,135,229,0.12); --sel: rgba(255,255,255,0.07);
+    --warn-bg: #2a2310; --warn-ink: #f3dc9c; --warn-line: #5a4a1c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 16px 64px; }
+  a { color: var(--pos); }
+  header h1 { font-size: 1.6rem; letter-spacing: -0.015em; margin: 0; }
+  header p { margin: 4px 0 0; color: var(--ink-2); max-width: 70ch; }
+  .updated { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+  .warn { margin: 18px 0; padding: 12px 16px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); font-size: .92rem; }
+  .warn strong { display: block; margin-bottom: 2px; }
+  .warn ul { margin: 4px 0 0; padding-left: 18px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: end; margin: 18px 0; }
+  .filters label { display: grid; gap: 3px; font-size: .78rem; color: var(--ink-2); }
+  select { font: inherit; font-size: .9rem; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--axis); background: var(--surface); color: var(--ink); min-width: 150px; }
+  .check { display: flex !important; grid-auto-flow: column; align-items: center; gap: 6px !important; font-size: .9rem !important; color: var(--ink) !important; padding-bottom: 7px; }
+  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; }
+  .tile .k { font-size: .8rem; color: var(--ink-2); }
+  .tile .v { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; margin-top: 2px; }
+  .tile .s { font-size: .78rem; color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 1.05rem; margin: 0; }
+  .card .sub { color: var(--ink-2); font-size: .88rem; margin: 2px 0 10px; }
+  .legend { display: flex; gap: 16px; font-size: .85rem; color: var(--ink-2); margin-bottom: 4px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .key { width: 16px; height: 2px; display: inline-block; border-radius: 1px; }
+  .hollow { width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--muted); display: inline-block; }
+  .chart { position: relative; }
+  .chart svg { display: block; width: 100%; overflow: visible; }
+  .chart svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--ring); box-shadow: 0 4px 16px rgba(0,0,0,.12); border-radius: 8px; padding: 8px 10px; font-size: .82rem; min-width: 150px; display: none; z-index: 2; }
+  .tip .t { color: var(--ink-2); margin-bottom: 4px; }
+  .tip .row { display: flex; align-items: center; gap: 6px; }
+  .tip .row b { min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+  .tip .low { color: var(--muted); margin-top: 4px; font-size: .76rem; }
+  .hint { font-size: .8rem; color: var(--muted); margin-top: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th { text-align: left; font-weight: 600; font-size: .78rem; color: var(--ink-2); border-bottom: 1px solid var(--axis); padding: 8px 8px; }
+  td { border-bottom: 1px solid var(--grid); padding: 8px 8px; vertical-align: top; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover { background: var(--sel); }
+  tbody tr.active { background: var(--sel); }
+  .bar { display: inline-block; height: 6px; border-radius: 3px; background: var(--neg); vertical-align: middle; margin-left: 6px; }
+  .flag { font-size: .8rem; color: var(--ink-2); }
+  .flag b { color: var(--ink); }
+  .tablewrap { overflow-x: auto; }
+  .items-head { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: .85rem; border: 0; background: transparent; color: var(--ink-2); padding: 6px 12px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .linkbtn { font: inherit; font-size: .85rem; background: none; border: 0; color: var(--pos); cursor: pointer; padding: 0; text-decoration: underline; }
+  .item { border-top: 1px solid var(--grid); padding: 12px 0; }
+  .item .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: .8rem; color: var(--muted); align-items: center; }
+  .item .text { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+  .lab { font-size: .76rem; font-weight: 600; padding: 1px 8px; border-radius: 99px; border: 1px solid; }
+  .lab.negative { color: var(--neg); } .lab.positive { color: var(--pos); } .lab.neutral { color: var(--ink-2); }
+  details summary { cursor: pointer; color: var(--ink-2); font-size: .88rem; margin-top: 8px; }
+  footer { color: var(--muted); font-size: .82rem; margin-top: 28px; }
+  .loader { padding: 40px 0; color: var(--ink-2); }
+  @media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } .hide-sm { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Maintainer Pressure Meter</h1>
+    <p>What is the tone in the GitHub comments of the open-source projects our digital infrastructure runs on? For funds that decide where maintainers need support.</p>
+    <div class="updated" id="updated">Loading data…</div>
+  </header>
+
+  <div class="warn" role="note">
+    <strong>Read this as a signal, not a verdict.</strong>
+    <ul>
+      <li>The model was trained on tweets, not on programmer language. Technical words such as <em>kill</em>, <em>fatal</em> or <em>failure</em> can wrongly make a matter-of-fact comment negative. See the <a href="https://github.com/YassirDH/maintainer-druk-meter/blob/main/test/report.md">test report</a> for how often it is right.</li>
+      <li>Only public, English GitHub comments. People who email, chat or stay silent are not counted. Small projects (xz, zlib) are almost silent, so the meter sees most where most people are already looking.</li>
+      <li>Periods with fewer than 10 comments are shown as hollow dots: their percentage is unreliable.</li>
+    </ul>
+  </div>
+
+  <div id="loader" class="loader">Fetching the latest data…</div>
+  <div id="picker" class="card" hidden>
+    <h2>The data could not be loaded automatically</h2>
+    <p class="sub">Open this page via GitHub Pages, or choose the file <code>data/comments.csv</code> here.</p>
+    <input type="file" id="file" accept=".csv">
+  </div>
+
+  <div id="app" hidden>
+    <div class="filters">
+      <label>Period
+        <select id="fPeriod">
+          <option value="all">All</option>
+          <option value="168">Last 7 days</option>
+          <option value="48">Last 48 hours</option>
+          <option value="24">Last 24 hours</option>
+        </select>
+      </label>
+      <label>Project
+        <select id="fRepo"><option value="">All projects</option></select>
+      </label>
+      <label>Per
+        <select id="fBucket">
+          <option value="1">hour</option>
+          <option value="3" selected>3 hours</option>
+          <option value="6">6 hours</option>
+          <option value="24">day</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="fOutside"> Only comments from outsiders</label>
+    </div>
+
+    <div class="tiles">
+      <div class="tile"><div class="k">Comments in selection</div><div class="v" id="tN">–</div><div class="s" id="tNs"></div></div>
+      <div class="tile"><div class="k">Negative</div><div class="v" id="tNeg">–</div><div class="s" id="tNegs"></div></div>
+      <div class="tile"><div class="k">Positive</div><div class="v" id="tPos">–</div><div class="s" id="tPoss"></div></div>
+      <div class="tile"><div class="k">Negative, from outsiders</div><div class="v" id="tOut">–</div><div class="s">pressure from users on the team</div></div>
+    </div>
+
+    <section class="card">
+      <h2>Tone over time</h2>
+      <p class="sub">Share of negative and positive comments per period. The rest is neutral.</p>
+      <div class="legend">
+        <span><i class="key" style="background:var(--neg)"></i>negative</span>
+        <span><i class="key" style="background:var(--pos)"></i>positive</span>
+        <span><i class="hollow"></i>fewer than 10 comments</span>
+      </div>
+      <div class="chart" id="lineChart"><div class="tip" id="tip1"></div></div>
+      <h2 style="margin-top:18px;font-size:.95rem">Number of comments per period</h2>
+      <div class="chart" id="barChart"><div class="tip" id="tip2"></div></div>
+      <p class="hint">Click a period in either chart to see the comments behind it.</p>
+      <details><summary>Numbers as a table</summary><div class="tablewrap"><table id="bucketTable"></table></div></details>
+    </section>
+
+    <section class="card">
+      <h2>Where is the pressure highest?</h2>
+      <p class="sub">Per project, within the chosen period. Click a project to filter on it.</p>
+      <div class="tablewrap"><table id="repoTable"></table></div>
+      <p class="hint"><b>Top account</b> = the share of negative comments that come from one and the same (pseudonymised) account. If it is high, one person moves the line.</p>
+    </section>
+
+    <section class="card">
+      <div class="items-head">
+        <div>
+          <h2 id="itemsTitle">Comments behind the chart</h2>
+          <p class="sub" id="itemsSub"></p>
+        </div>
+        <div class="seg" role="group" aria-label="Show">
+          <button data-show="negative" aria-pressed="true">Negative</button>
+          <button data-show="positive" aria-pressed="false">Positive</button>
+          <button data-show="all" aria-pressed="false">All</button>
+        </div>
+      </div>
+      <div id="items"></div>
+      <button class="linkbtn" id="more" hidden>Show more</button>
+    </section>
+  </div>
+
+  <footer>
+    Source: GitHub REST API (issue and PR comments), fetched every 15 minutes via GitHub Actions.
+    Model: <a href="https://huggingface.co/cardiffnlp/twitter-roberta-base-sentiment-latest">cardiffnlp/twitter-roberta-base-sentiment-latest</a>.
+    Bots, code, logs, links and @mentions are removed before analysis; authors are stored only as a salted hash.
+    <a href="https://github.com/YassirDH/maintainer-druk-meter/blob/main/test/report.md">Test report</a> · <a href="https://github.com/YassirDH/maintainer-druk-meter#readme">Method and ethics</a>
+  </footer>
+</main>
+
+<script>
+const MAINTAINER = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+const LOW_N = 10, LOW_N_REPO = 30;
+const NL = { negative: 'negative', neutral: 'neutral', positive: 'positive' };
+const ROLE = r => MAINTAINER.has(r) ? 'maintainer' : r === 'NONE' ? 'outsider' : 'contributor (outsider)';
+const $ = id => document.getElementById(id);
+const el = (tag, attrs = {}, text) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+const pct = x => isFinite(x) ? Math.round(100 * x) + '%' : '–';
+const fmtTime = d => d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+const fmtTick = (d, step) => step >= 24 ? d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : d.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+function parseCSV(text) {
+  const rows = []; let row = [], field = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; } else field += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(field); field = ''; if (row.length > 1 || row[0] !== '') rows.push(row); row = []; }
+    else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  const h = rows.shift();
+  return rows.map(r => Object.fromEntries(h.map((k, j) => [k, r[j] ?? ''])));
+}
+
+let ALL = [], state = { bucket: null, repo: '', show: 'negative', limit: 20 };
+
+function init(text) {
+  // Same filter as collect.py: bot commands are not opinions (also for data collected before that filter)
+  const BOT_COMMAND = /^(thanks!?\s+)?@user\s+(r\+|r-|r=|try|rollup|queue|delegate|retry|p=|add-label|remove-label|label|ping|proposal cancelled)/i;
+  ALL = parseCSV(text).filter(r => r.label && !BOT_COMMAND.test(r.text)).map(r => ({
+    ...r, t: new Date(r.created_at), score: +r.score, outside: !MAINTAINER.has(r.author_role)
+  })).sort((a, b) => a.t - b.t);
+  const repos = [...new Set(ALL.map(r => r.repo))].sort();
+  for (const r of repos) $('fRepo').append(el('option', { value: r }, r));
+  const last = ALL.reduce((m, r) => (r.collected_at > m ? r.collected_at : m), '');
+  const first = ALL[0].t, lastT = ALL[ALL.length - 1].t;
+  $('updated').textContent = `Last updated ${fmtTime(new Date(last))} · ${ALL.length.toLocaleString('en-GB')} comments since ${fmtTime(first)} (${Math.round((lastT - first) / 36e5)} hours)`;
+  $('loader').hidden = true; $('picker').hidden = true; $('app').hidden = false;
+  ['fPeriod', 'fBucket', 'fOutside'].forEach(id => $(id).addEventListener('change', () => { state.bucket = null; render(); }));
+  $('fRepo').addEventListener('change', e => { state.repo = e.target.value; state.bucket = null; render(); });
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+    state.show = b.dataset.show; state.limit = 20;
+    document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === b)); renderItems();
+  }));
+  $('more').addEventListener('click', () => { state.limit += 30; renderItems(); });
+  new ResizeObserver(() => drawCharts()).observe($('lineChart'));
+  render();
+}
+
+function filtered(ignoreRepo = false) {
+  const p = $('fPeriod').value, out = $('fOutside').checked;
+  const end = ALL.length ? ALL[ALL.length - 1].t : new Date();
+  const start = p === 'all' ? -Infinity : end - p * 36e5;
+  return ALL.filter(r => r.t >= start && (!out || r.outside) && (ignoreRepo || !state.repo || r.repo === state.repo));
+}
+
+function bucketize(rows, step) {
+  const map = new Map();
+  for (const r of rows) {
+    const d = new Date(r.t); d.setMinutes(0, 0, 0);
+    if (step >= 24) d.setHours(0); else d.setHours(d.getHours() - d.getHours() % step);
+    const k = +d; if (!map.has(k)) map.set(k, []); map.get(k).push(r);
+  }
+  if (!rows.length) return [];
+  const keys = [...map.keys()].sort((a, b) => a - b), out = [];
+  for (let k = keys[0]; k <= keys[keys.length - 1];) {           // show empty periods too
+    const items = map.get(k) || [], n = items.length;
+    const neg = items.filter(r => r.label === 'negative').length, pos = items.filter(r => r.label === 'positive').length;
+    const d = new Date(k), e = new Date(k); step >= 24 ? e.setDate(e.getDate() + 1) : e.setHours(e.getHours() + step);
+    out.push({ start: d, end: e, n, neg: n ? neg / n : NaN, pos: n ? pos / n : NaN, items });
+    k = +e;
+  }
+  return out;
+}
+
+let BUCKETS = [];
+function render() {
+  const rows = filtered();
+  $('fRepo').value = state.repo;
+  const n = rows.length, neg = rows.filter(r => r.label === 'negative').length, pos = rows.filter(r => r.label === 'positive').length;
+  const outs = rows.filter(r => r.outside), outNeg = outs.filter(r => r.label === 'negative').length;
+  $('tN').textContent = n.toLocaleString('en-GB');
+  $('tNs').textContent = state.repo || 'all projects';
+  $('tNeg').textContent = pct(neg / n); $('tNegs').textContent = `${neg} comments`;
+  $('tPos').textContent = pct(pos / n); $('tPoss').textContent = `${pos} comments`;
+  $('tOut').textContent = pct(outNeg / outs.length);
+  BUCKETS = bucketize(rows, +$('fBucket').value);
+  drawCharts(); renderBucketTable(); renderRepos(); state.limit = 20; renderItems();
+}
+
+/* ---------- Charts (plain SVG, no library) ---------- */
+const NS = 'http://www.w3.org/2000/svg';
+const sv = (tag, a) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+function frame(container, height) {
+  container.querySelector('svg')?.remove();
+  const W = container.clientWidth, m = { l: 40, r: 12, t: 10, b: 26 };
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${height}`, height, role: 'img' });
+  container.prepend(svg);
+  const nB = BUCKETS.length, iw = W - m.l - m.r, bw = iw / Math.max(nB, 1);
+  const x = i => m.l + bw * (i + 0.5);
+  return { svg, W, H: height, m, bw, x, iw, ih: height - m.t - m.b };
+}
+
+function xTicks(f, svg) {
+  const step = +$('fBucket').value, maxTicks = Math.max(2, Math.floor(f.iw / 110));
+  const every = Math.ceil(BUCKETS.length / maxTicks);
+  BUCKETS.forEach((b, i) => {
+    if (i % every) return;
+    const t = sv('text', { x: f.x(i), y: f.H - 6, 'text-anchor': 'middle' }); t.textContent = fmtTick(b.start, step); svg.append(t);
+  });
+}
+
+function selectionBand(f, svg) {
+  if (state.bucket === null) return;
+  svg.append(sv('rect', { x: f.m.l + f.bw * state.bucket, y: f.m.t, width: f.bw, height: f.ih, fill: 'var(--sel)' }));
+}
+
+function drawCharts() {
+  if (!BUCKETS.length) return;
+  drawLine(); drawBars();
+}
+
+function drawLine() {
+  const c = $('lineChart'), f = frame(c, 240), { svg, m } = f;
+  const maxV = Math.max(0.3, ...BUCKETS.filter(b => b.n >= LOW_N).flatMap(b => [b.neg, b.pos]));
+  const top = Math.min(1, Math.ceil(maxV * 10) / 10);
+  const y = v => m.t + f.ih * (1 - v / top);
+  for (let v = 0; v <= top + 1e-9; v += top <= 0.5 ? 0.1 : 0.2) {
+    svg.append(sv('line', { x1: m.l, x2: f.W - m.r, y1: y(v), y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)', 'stroke-width': 1 }));
+    const t = sv('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = Math.round(v * 100) + '%'; svg.append(t);
+  }
+  selectionBand(f, svg);
+  for (const [key, color] of [['neg', 'var(--neg)'], ['pos', 'var(--pos)']]) {
+    // solid line between reliable points; dashed when either has little data
+    for (let i = 1; i < BUCKETS.length; i++) {
+      const a = BUCKETS[i - 1], b = BUCKETS[i];
+      if (!a.n || !b.n) continue;
+      const solid = a.n >= LOW_N && b.n >= LOW_N;
+      svg.append(sv('line', { x1: f.x(i - 1), y1: y(a[key]), x2: f.x(i), y2: y(b[key]), stroke: color, 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-dasharray': solid ? '' : '3 4', opacity: solid ? 1 : 0.6 }));
+    }
+    BUCKETS.forEach((b, i) => {
+      if (!b.n) return;
+      const low = b.n < LOW_N;
+      svg.append(sv('circle', { cx: f.x(i), cy: y(b[key]), r: BUCKETS.length > 60 ? 2.5 : 4, fill: low ? 'var(--surface)' : color, stroke: low ? color : 'var(--surface)', 'stroke-width': 2 }));
+    });
+  }
+  xTicks(f, svg);
+  const cross = sv('line', { y1: m.t, y2: m.t + f.ih, stroke: 'var(--muted)', 'stroke-width': 1, visibility: 'hidden' });
+  svg.append(cross);
+  hover(c, f, svg, $('tip1'), i => { cross.setAttribute('x1', f.x(i)); cross.setAttribute('x2', f.x(i)); cross.setAttribute('visibility', 'visible'); }, () => cross.setAttribute('visibility', 'hidden'));
+}
+
+function drawBars() {
+  const c = $('barChart'), f = frame(c, 120), { svg, m } = f;
+  const maxN = Math.max(...BUCKETS.map(b => b.n), 1);
+  const nice = Math.pow(10, Math.floor(Math.log10(maxN))), top = Math.ceil(maxN / nice) * nice;
+  const y = v => m.t + f.ih * (1 - v / top);
+  for (const v of [0, top / 2, top]) {
+    svg.append(sv('line', { x1: m.l, x2: f.W - m.r, y1: y(v), y2: y(v), stroke: v === 0 ? 'var(--axis)' : 'var(--grid)' }));
+    const t = sv('text', { x: m.l - 6, y: y(v) + 4, 'text-anchor': 'end' }); t.textContent = Math.round(v); svg.append(t);
+  }
+  selectionBand(f, svg);
+  const w = Math.max(1, f.bw - 2), r = Math.min(4, w / 2);
+  BUCKETS.forEach((b, i) => {
+    if (!b.n) return;
+    const x0 = f.m.l + f.bw * i + 1, y0 = y(b.n), h = y(0) - y0, rr = Math.min(r, h);
+    const d = `M${x0},${y(0)} V${y0 + rr} Q${x0},${y0} ${x0 + rr},${y0} H${x0 + w - rr} Q${x0 + w},${y0} ${x0 + w},${y0 + rr} V${y(0)} Z`;
+    svg.append(sv('path', { d, fill: b.n < LOW_N ? 'var(--axis)' : 'var(--muted)', opacity: state.bucket === null || state.bucket === i ? 1 : 0.45 }));
+  });
+  xTicks(f, svg);
+  hover(c, f, svg, $('tip2'), () => {}, () => {});
+}
+
+function hover(c, f, svg, tip, on, off) {
+  const idx = ev => { const r = svg.getBoundingClientRect(); const px = (ev.clientX - r.left) * f.W / r.width; return Math.max(0, Math.min(BUCKETS.length - 1, Math.floor((px - f.m.l) / f.bw))); };
+  svg.addEventListener('pointermove', ev => {
+    const i = idx(ev), b = BUCKETS[i]; on(i);
+    tip.replaceChildren();
+    tip.append(el('div', { class: 't' }, `${fmtTime(b.start)} – ${b.end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`));
+    for (const [k, lab, col] of [['neg', 'negative', 'var(--neg)'], ['pos', 'positive', 'var(--pos)']]) {
+      const row = el('div', { class: 'row' }); const key = el('i', { class: 'key', style: `background:${col}` });
+      row.append(key, el('b', {}, pct(b[k])), el('span', {}, lab)); tip.append(row);
+    }
+    tip.append(el('div', { class: 'low' }, `${b.n} comments${b.n && b.n < LOW_N ? ' · too few for a reliable %' : ''} · click for details`));
+    tip.style.display = 'block';
+    const r = c.getBoundingClientRect(), left = ev.clientX - r.left;
+    tip.style.left = Math.min(left + 14, r.width - tip.offsetWidth - 4) + 'px'; tip.style.top = '8px';
+    svg.style.cursor = 'pointer';
+  });
+  svg.addEventListener('pointerleave', () => { tip.style.display = 'none'; off(); });
+  svg.addEventListener('click', ev => { const i = idx(ev); state.bucket = state.bucket === i ? null : i; state.limit = 20; drawCharts(); renderItems(); $('items').scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+}
+
+function renderBucketTable() {
+  const t = $('bucketTable'); t.replaceChildren();
+  const h = el('tr'); ['Period', 'Comments', 'Negative', 'Positive'].forEach((x, i) => h.append(el('th', i ? { class: 'n' } : {}, x)));
+  t.append(el('thead')); t.tHead.append(h); const tb = el('tbody'); t.append(tb);
+  BUCKETS.forEach(b => {
+    const r = el('tr'); r.append(el('td', {}, fmtTime(b.start)), el('td', { class: 'n' }, b.n), el('td', { class: 'n' }, pct(b.neg)), el('td', { class: 'n' }, pct(b.pos))); tb.append(r);
+  });
+}
+
+/* ---------- Table per project ---------- */
+function renderRepos() {
+  const rows = filtered(true), by = {};
+  for (const r of rows) (by[r.repo] ||= []).push(r);
+  const stats = Object.entries(by).map(([repo, rs]) => {
+    const negs = rs.filter(r => r.label === 'negative'), outs = rs.filter(r => r.outside);
+    const counts = {}; negs.forEach(r => counts[r.author_hash] = (counts[r.author_hash] || 0) + 1);
+    const topShare = negs.length ? Math.max(...Object.values(counts)) / negs.length : 0;
+    return { repo, n: rs.length, neg: negs.length / rs.length, nNeg: negs.length,
+             outNeg: outs.length ? outs.filter(r => r.label === 'negative').length / outs.length : NaN, topShare };
+  }).sort((a, b) => (a.n < LOW_N_REPO) - (b.n < LOW_N_REPO) || b.neg - a.neg);
+  const t = $('repoTable'); t.replaceChildren();
+  const h = el('tr');
+  [['Project'], ['Comments', 'n'], ['Negative', 'n'], ['Negative from outsiders', 'n hide-sm'], ['Top account', 'n hide-sm'], ['Signal']].forEach(([x, c]) => h.append(el('th', c ? { class: c } : {}, x)));
+  t.append(el('thead')); t.tHead.append(h); const tb = el('tbody'); t.append(tb);
+  for (const s of stats) {
+    const tr = el('tr', { class: 'clickable' + (state.repo === s.repo ? ' active' : ''), tabindex: 0 });
+    const negCell = el('td', { class: 'n' }, pct(s.neg)); negCell.append(el('span', { class: 'bar', style: `width:${Math.round(60 * s.neg)}px` }));
+    let flag;
+    if (s.n < LOW_N_REPO) flag = ['Too little data', ` (${s.n} comments): no conclusion possible`];
+    else if (s.nNeg >= 5 && s.topShare >= 0.3) flag = ['One account weighs heavily', `: ${pct(s.topShare)} of the negative comments come from one account. Read them before drawing conclusions`];
+    else if (s.outNeg >= 0.25) flag = ['Outside pressure', ': many negative comments from non-maintainers'];
+    else flag = ['', ''];
+    const fc = el('td', { class: 'flag' }); if (flag[0]) { fc.append(el('b', {}, flag[0]), document.createTextNode(flag[1])); }
+    tr.append(el('td', {}, s.repo), el('td', { class: 'n' }, s.n), negCell, el('td', { class: 'n hide-sm' }, pct(s.outNeg)), el('td', { class: 'n hide-sm' }, s.nNeg ? pct(s.topShare) : '–'), fc);
+    const go = () => { state.repo = state.repo === s.repo ? '' : s.repo; state.bucket = null; render(); };
+    tr.addEventListener('click', go); tr.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    tb.append(tr);
+  }
+}
+
+/* ---------- Comments ---------- */
+function renderItems() {
+  let rows = state.bucket !== null && BUCKETS[state.bucket] ? BUCKETS[state.bucket].items : filtered();
+  const b = state.bucket !== null ? BUCKETS[state.bucket] : null;
+  $('itemsTitle').textContent = b ? `Comments between ${fmtTime(b.start)} and ${b.end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : 'Comments behind the chart';
+  const shown = state.show === 'all' ? rows : rows.filter(r => r.label === state.show);
+  const sorted = [...shown].sort((a, c) => state.show === 'positive' ? c.score - a.score : state.show === 'negative' ? a.score - c.score : c.t - a.t);
+  $('itemsSub').textContent = `${shown.length} of ${rows.length} comments${state.repo ? ' in ' + state.repo : ''}` +
+    (state.show === 'negative' ? ', most negative first' : state.show === 'positive' ? ', most positive first' : ', newest first') +
+    (b ? '. Click the period again to clear the selection.' : '. Click a period in the chart to zoom in.');
+  const box = $('items'); box.replaceChildren();
+  for (const r of sorted.slice(0, state.limit)) {
+    const it = el('div', { class: 'item' }), meta = el('div', { class: 'meta' });
+    meta.append(el('span', { class: 'lab ' + r.label }, `${NL[r.label]} ${r.score > 0 ? '+' : ''}${r.score.toFixed(2)}`),
+      el('span', {}, r.repo), el('span', {}, fmtTime(r.t)), el('span', {}, ROLE(r.author_role)));
+    const a = el('a', { href: r.url, target: '_blank', rel: 'noopener' }, 'view on GitHub ↗'); meta.append(a);
+    const txt = r.text.length > 600 ? r.text.slice(0, 600) + '…' : r.text;
+    it.append(meta, el('p', { class: 'text' }, txt)); box.append(it);
+  }
+  if (!sorted.length) box.append(el('p', { class: 'hint' }, 'No comments in this selection.'));
+  $('more').hidden = sorted.length <= state.limit;
+}
+
+/* ---------- Loading ---------- */
+fetch('data/comments.csv', { cache: 'no-store' })
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  .then(init)
+  .catch(() => { $('loader').hidden = true; $('picker').hidden = false; $('updated').textContent = ''; });
+$('file').addEventListener('change', async e => { const f = e.target.files[0]; if (f) init(await f.text()); });
+</script>
+</body>
+</html>

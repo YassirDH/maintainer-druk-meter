@@ -1,17 +1,17 @@
 """
-Maintainer-druk-meter — verzamelaar
-===================================
+Maintainer Pressure Meter: collector
+====================================
 
-Wat dit script doet, elke keer dat het draait:
-  1. Voor elke repo in repos.txt: haal de issue- en PR-reacties op die sinds
-     de vorige keer zijn geplaatst (GitHub REST API).
-  2. Gooi bots, slash-commando's en te korte reacties weg; haal code, logs,
-     links, citaten en @namen uit de tekst.
-  3. Laat een pre-trained transformer van Hugging Face het sentiment bepalen.
-  4. Voeg de nieuwe regels toe aan data/comments.csv, met tijdstempel.
+What this script does every time it runs:
+  1. For every repo in repos.txt: fetch the issue and PR comments posted since
+     the previous run (GitHub REST API).
+  2. Drop bots, slash commands, bot commands and very short comments; strip
+     code, logs, links, quotes and @mentions from the text.
+  3. Let a pre-trained Hugging Face transformer score the sentiment.
+  4. Append the new rows to data/comments.csv, with timestamps.
 
-Het draait elke 15 minuten vanzelf via GitHub Actions
-(zie .github/workflows/collect.yml). Lokaal kan het ook: python collect.py
+It runs on its own every 15 minutes via GitHub Actions
+(see .github/workflows/collect.yml). Locally: python collect.py
 """
 
 import csv
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import requests
 
-# --- Instellingen -----------------------------------------------------------
+# --- Settings ---------------------------------------------------------------
 
 MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 
@@ -33,12 +33,12 @@ CSV_PATH = DATA_DIR / "comments.csv"
 STATE_PATH = DATA_DIR / "state.json"
 REPOS_PATH = Path("repos.txt")
 
-FIRST_RUN_LOOKBACK = timedelta(hours=1)   # eerste keer: alleen het laatste uur
-OVERLAP = timedelta(minutes=10)           # kleine overlap, dubbelen filteren we
-MAX_PAGES = 5                             # max 5 x 100 reacties per repo per run
-MIN_CHARS = 20                            # kortere reacties zeggen te weinig
+FIRST_RUN_LOOKBACK = timedelta(hours=1)   # first run: only the last hour
+OVERLAP = timedelta(minutes=10)           # small overlap; duplicates are skipped
+MAX_PAGES = 5                             # at most 5 x 100 comments per repo per run
+MIN_CHARS = 20                            # shorter comments say too little
 
-# Bots die zich niet als "Bot" registreren bij GitHub
+# Bots that do not register as type "Bot" on GitHub
 KNOWN_BOTS = {
     "k8s-ci-robot", "k8s-triage-robot", "rustbot", "rust-timer", "bors",
     "rust-log-analyzer", "nodejs-github-bot", "bedevere-bot",
@@ -55,7 +55,7 @@ FIELDS = [
 SALT = os.environ.get("HASH_SALT", "")
 
 
-# --- Hulpfuncties -----------------------------------------------------------
+# --- Helpers ----------------------------------------------------------------
 
 def now_utc():
     return datetime.now(timezone.utc).replace(microsecond=0)
@@ -92,9 +92,9 @@ def seen_ids():
 
 
 def author_hash(login):
-    """Geen gebruikersnaam opslaan, wel een pseudoniem: zo kunnen we zien of
-    één account de lijn beweegt, zonder te weten wie het is. Het geheime
-    zout (HASH_SALT) voorkomt dat iemand de hash terugrekent naar de naam."""
+    """Never store the username, only a pseudonym: this lets us see whether one
+    account moves the line without knowing who it is. The secret salt
+    (HASH_SALT) prevents anyone from hashing usernames to reverse it."""
     return hashlib.sha256((SALT + login).encode("utf-8")).hexdigest()[:12]
 
 
@@ -105,32 +105,41 @@ def is_bot(user):
 
 
 def clean(body):
-    """Maak van een GitHub-reactie platte tekst die het model kan lezen."""
+    """Turn a GitHub comment into plain text the model can read."""
     t = body or ""
-    t = re.sub(r"```.*?```", " ", t, flags=re.S)              # codeblokken
-    t = re.sub(r"<!--.*?-->", " ", t, flags=re.S)             # template-commentaar
-    t = re.sub(r"<details>.*?</details>", " ", t, flags=re.S | re.I)  # ingeklapte logs
-    t = "\n".join(l for l in t.splitlines() if not l.lstrip().startswith(">"))  # citaten
+    t = re.sub(r"```.*?```", " ", t, flags=re.S)              # code blocks
+    t = re.sub(r"<!--.*?-->", " ", t, flags=re.S)             # template comments
+    t = re.sub(r"<details>.*?</details>", " ", t, flags=re.S | re.I)  # collapsed logs
+    t = "\n".join(l for l in t.splitlines() if not l.lstrip().startswith(">"))  # quotes
     t = re.sub(r"`[^`]*`", " ", t)                            # inline code
-    t = re.sub(r"https?://\S+", "http", t)                    # links (zoals het modelkaartje voorschrijft)
-    t = re.sub(r"(?<![\w.])@[A-Za-z0-9-]+", "@user", t)       # @namen weg (privacy)
+    t = re.sub(r"https?://\S+", "http", t)                    # links (as the model card prescribes)
+    t = re.sub(r"(?<![\w.])@[A-Za-z0-9-]+", "@user", t)       # @mentions removed (privacy)
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+# Instructions people type to a bot ("@bors r+", "@bors try jobs=...").
+# Not an opinion, so not counted. Found in the first 48 hours of data (~5%, mostly Rust).
+BOT_COMMAND = re.compile(
+    r"^(thanks!?\s+)?@user\s+(r\+|r-|r=|try|rollup|queue|delegate|retry|p=|"
+    r"add-label|remove-label|label|ping|proposal cancelled)", re.I)
 
 
 def keep(text):
     if len(text) < MIN_CHARS:
         return False
-    if text.startswith("/"):        # commando's als /retest, /lgtm, /assign
+    if text.startswith("/"):        # commands such as /retest, /lgtm, /assign
+        return False
+    if BOT_COMMAND.match(text):
         return False
     return True
 
 
-# --- Ophalen ----------------------------------------------------------------
+# --- Fetching ---------------------------------------------------------------
 
 def fetch_repo(session, repo, since):
-    """Alle reacties die sinds `since` zijn geplaatst of bewerkt, oudste eerst.
-    Geeft (reacties, raakte_limiet) terug."""
+    """All comments created or edited since `since`, oldest first.
+    Returns (comments, hit_page_limit)."""
     url = f"https://api.github.com/repos/{repo}/issues/comments"
     params = {"since": to_iso(since), "sort": "updated", "direction": "asc", "per_page": 100}
     comments = []
@@ -150,8 +159,8 @@ def fetch_repo(session, repo, since):
 # --- Sentiment --------------------------------------------------------------
 
 class SentimentModel:
-    """Laadt het Hugging Face-model en geeft per tekst de kans op
-    negatief / neutraal / positief terug."""
+    """Loads the Hugging Face model and returns, per text, the probability of
+    negative / neutral / positive."""
 
     def __init__(self):
         import torch
@@ -175,16 +184,16 @@ class SentimentModel:
         return out
 
 
-# --- Hoofdprogramma ---------------------------------------------------------
+# --- Main -------------------------------------------------------------------
 
 def main():
     DATA_DIR.mkdir(exist_ok=True)
     if not SALT:
-        print("Let op: HASH_SALT is niet gezet; auteur-hashes zijn dan terug te rekenen.")
+        print("Warning: HASH_SALT is not set; author hashes could be reversed.")
 
     session = requests.Session()
     session.headers["Accept"] = "application/vnd.github+json"
-    session.headers["User-Agent"] = "maintainer-druk-meter"
+    session.headers["User-Agent"] = "maintainer-pressure-meter"
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         session.headers["Authorization"] = f"Bearer {token}"
@@ -203,7 +212,7 @@ def main():
             cid = str(c["id"])
             if cid in already or is_bot(c.get("user")):
                 continue
-            if from_iso(c["created_at"]) < since:   # oude reactie die alleen bewerkt is
+            if from_iso(c["created_at"]) < since:   # old comment that was only edited
                 continue
             text = clean(c.get("body"))
             if not keep(text):
@@ -224,13 +233,13 @@ def main():
             already.add(cid)
             kept += 1
 
-        # Volgende keer verder vanaf hier. Als we de paginalimiet raakten,
-        # gaan we verder vanaf de laatst geziene reactie, zodat we niets missen.
+        # Next run continues from here. If we hit the page limit, continue from
+        # the last comment we saw, so nothing is missed.
         if hit_limit and comments:
             state[repo] = comments[-1]["updated_at"]
         else:
             state[repo] = to_iso(run_start)
-        print(f"  {repo}: {len(comments)} opgehaald, {kept} nieuw")
+        print(f"  {repo}: {len(comments)} fetched, {kept} new")
 
     if new_rows:
         model = SentimentModel()
@@ -238,7 +247,7 @@ def main():
             row["p_negative"] = round(p["negative"], 4)
             row["p_neutral"] = round(p["neutral"], 4)
             row["p_positive"] = round(p["positive"], 4)
-            row["score"] = round(p["positive"] - p["negative"], 4)   # van -1 tot +1
+            row["score"] = round(p["positive"] - p["negative"], 4)   # from -1 to +1
             row["label"] = max(("negative", "neutral", "positive"), key=lambda k: p[k])
 
         write_header = not CSV_PATH.exists()
@@ -249,7 +258,7 @@ def main():
             writer.writerows(new_rows)
 
     save_state(state)
-    print(f"Klaar: {len(new_rows)} nieuwe reacties opgeslagen.")
+    print(f"Done: {len(new_rows)} new comments saved.")
 
 
 if __name__ == "__main__":

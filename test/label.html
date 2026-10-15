@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Labelling · Maintainer Pressure Meter</title>
+<style>
+  :root {
+    --bg: #f5f4f0; --card: #ffffff; --ink: #1c1c1e; --muted: #6b6b70; --line: #e3e1db;
+    --neg: #b4471c; --neu: #5d5852; --pos: #1d7a43; --accent: #1f3a5f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131315; --card: #1d1d20; --ink: #ececee; --muted: #9b9ba3; --line: #2f2f34;
+      --neg: #f08a5d; --neu: #b2aca5; --pos: #5fcf8c; --accent: #9dbbe3;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px; margin-bottom: 16px;
+  }
+  .hidden { display: none !important; }
+  .guide { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+  .guide li { padding-left: 14px; border-left: 3px solid var(--line); }
+  .guide b.neg { color: var(--neg); } .guide b.neu { color: var(--neu); } .guide b.pos { color: var(--pos); }
+  .rule { margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  input[type=file] { margin-top: 14px; font: inherit; }
+  .progress { height: 6px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 6px 0 18px; }
+  .progress > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+  .meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: var(--muted); font-size: .9rem; }
+  .chip { font-family: ui-monospace, Consolas, monospace; font-size: .85rem; padding: 2px 8px; border: 1px solid var(--line); border-radius: 99px; color: var(--ink); }
+  .text { font-size: 1.12rem; margin: 18px 0; white-space: pre-wrap; word-break: break-word; }
+  .meta a { color: var(--accent); }
+  .note { width: 100%; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 14px; }
+  .buttons button { font: inherit; font-weight: 600; padding: 14px 8px; border-radius: 12px; border: 2px solid currentColor; background: transparent; cursor: pointer; }
+  .buttons button:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+  .b-neg { color: var(--neg); } .b-neu { color: var(--neu); } .b-pos { color: var(--pos); }
+  kbd { font: .75rem ui-monospace, Consolas, monospace; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 6px; opacity: .8; }
+  .secondary { display: flex; justify-content: space-between; margin-top: 12px; }
+  .link { background: none; border: 0; color: var(--muted); font: inherit; cursor: pointer; text-decoration: underline; padding: 4px 0; }
+  .primary { font: inherit; font-weight: 600; padding: 12px 20px; border-radius: 12px; border: 0; background: var(--accent); color: var(--card); cursor: pointer; }
+  .counts { display: flex; gap: 18px; margin: 12px 0 18px; }
+  .msg { color: var(--neg); margin-top: 10px; }
+  @media (max-width: 520px) { .buttons { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Label it yourself</h1>
+  <p class="sub">Maintainer Pressure Meter · honest test of the model</p>
+
+  <!-- Start screen -->
+  <section id="start" class="card">
+    <strong>How do you judge a comment?</strong>
+    <ul class="guide">
+      <li><b class="neg">Negative</b>: frustration, complaining, applying pressure ("when will this finally be fixed?"), anger, disappointment, rudeness.</li>
+      <li><b class="neu">Neutral</b>: technical or factual, a question without emotion, a status update.</li>
+      <li><b class="pos">Positive</b>: thanks, praise, enthusiasm, appreciation.</li>
+    </ul>
+    <div class="rule">
+      <strong>Main rule:</strong> judge the <em>tone of the writer</em>, not the topic.
+      "Fatal error on startup, here is the log" is about something bad, but it is written neutrally.
+      In doubt, or mixed? Pick what dominates and write it in the note.
+    </div>
+    <p style="margin:16px 0 0">Choose the file <code>comments.csv</code> from the repo. The model's verdict is not shown.</p>
+    <input type="file" id="file" accept=".csv,text/csv">
+    <div id="startMsg" class="msg hidden"></div>
+    <div id="resume" class="hidden" style="margin-top:14px">
+      You have already labelled <span id="resumeCount"></span> comments; choose the same file to continue.
+      <button class="link" id="reset">Start over</button>
+    </div>
+  </section>
+
+  <!-- Labelling screen -->
+  <section id="label" class="hidden">
+    <div class="meta"><span id="progressText"></span><button class="link" id="reset2">Start over</button></div>
+    <div class="progress"><div id="bar"></div></div>
+    <div class="card">
+      <div class="meta">
+        <span class="chip" id="repo"></span>
+        <a id="url" href="#" target="_blank" rel="noopener">View on GitHub for context ↗</a>
+      </div>
+      <div class="text" id="text"></div>
+      <input class="note" id="note" placeholder="Note (optional): sarcasm, jargon, mixed, other language…">
+      <div class="buttons">
+        <button class="b-neg" data-label="negative">Negative<kbd>1</kbd></button>
+        <button class="b-neu" data-label="neutral">Neutral<kbd>2</kbd></button>
+        <button class="b-pos" data-label="positive">Positive<kbd>3</kbd></button>
+      </div>
+      <div class="secondary">
+        <button class="link" id="back">← Previous</button>
+        <button class="link" id="skip">Skip (unreadable or no text)</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Done -->
+  <section id="done" class="card hidden">
+    <strong>Done! You labelled 50 comments.</strong>
+    <div class="counts" id="counts"></div>
+    <button class="primary" id="download">Download labels_manual.csv</button>
+    <p class="sub" style="margin:14px 0 0">Put this file in the <code>test/</code> folder of the repo. The "Honest test" workflow then compares it with the models.</p>
+    <button class="link" id="back2">← Change the last one</button>
+  </section>
+</main>
+
+<script>
+/* ---------- Pure functions (tested separately from the page) ---------- */
+const TARGET = 50;        // number of comments to label
+const MAX_PER_REPO = 10;  // no single project may dominate the test
+const SEED = 42;          // fixed seed: same data gives the same sample
+
+function parseCSV(text) {
+  const rows = []; let row = []; let field = ''; let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else { field += c; }
+    } else if (c === '"') { inQuotes = true; }
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else { field += c; }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  const header = rows.shift().map(h => h.replace(/^﻿/, '').trim());
+  return rows.map(r => Object.fromEntries(header.map((h, j) => [h, r[j] ?? ''])));
+}
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* Random order, but at most MAX_PER_REPO per project up front.
+   The rest goes to the back as a reserve for skipped comments. */
+function sampleQueue(rows, seed = SEED, maxPerRepo = MAX_PER_REPO) {
+  const rand = mulberry32(seed);
+  const ids = rows.map(r => r.comment_id).sort();   // sort first: independent of file order
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]];
+  }
+  const repoOf = Object.fromEntries(rows.map(r => [r.comment_id, r.repo]));
+  const perRepo = {}; const front = []; const reserve = [];
+  for (const id of ids) {
+    const repo = repoOf[id]; perRepo[repo] = (perRepo[repo] || 0) + 1;
+    (perRepo[repo] <= maxPerRepo ? front : reserve).push(id);
+  }
+  return front.concat(reserve);
+}
+
+function toCSV(records, fields) {
+  const esc = v => {
+    const s = String(v ?? '');
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  return [fields.join(',')].concat(records.map(r => fields.map(f => esc(r[f])).join(','))).join('\n') + '\n';
+}
+
+/* ---------- Page ---------- */
+if (typeof document !== 'undefined') {
+  const KEY = 'mdm-labels-v1';
+  const $ = id => document.getElementById(id);
+  let rowsById = {};
+  let state = load() || { queue: [], pos: 0, labels: {}, history: [] };
+
+  function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  const labelledCount = () => Object.values(state.labels).filter(l => l.label !== 'skip').length;
+
+  if (state.queue.length && labelledCount()) {
+    $('resume').classList.remove('hidden'); $('resumeCount').textContent = labelledCount();
+  }
+
+  $('file').addEventListener('change', async e => {
+    const f = e.target.files[0]; if (!f) return;
+    let rows;
+    try { rows = parseCSV(await f.text()); } catch (err) { return showMsg('This file could not be read.'); }
+    // bot commands ("@bors r+") are not opinions: do not label them (same filter as collect.py)
+    const BOT_COMMAND = /^(thanks!?\s+)?@user\s+(r\+|r-|r=|try|rollup|queue|delegate|retry|p=|add-label|remove-label|label|ping|proposal cancelled)/i;
+    rows = rows.filter(r => !BOT_COMMAND.test(r.text || ''));
+    if (!rows.length || !('comment_id' in rows[0]) || !('text' in rows[0])) return showMsg('This does not look like comments.csv from the repo.');
+    if (rows.length < TARGET) return showMsg(`Only ${rows.length} comments so far. Wait until there are at least a few hundred.`);
+    rowsById = Object.fromEntries(rows.map(r => [r.comment_id, r]));
+    if (!state.queue.length) {           // first time: fix the sample
+      state.queue = sampleQueue(rows); state.pos = 0; state.labels = {}; state.history = [];
+      save();
+    }
+    $('start').classList.add('hidden');
+    next(false);
+  });
+
+  function showMsg(m) { const el = $('startMsg'); el.textContent = m; el.classList.remove('hidden'); }
+
+  function current() { return rowsById[state.queue[state.pos]]; }
+
+  function next(advance) {
+    if (advance) state.pos++;
+    while (state.pos < state.queue.length && !rowsById[state.queue[state.pos]]) state.pos++;
+    save();
+    if (labelledCount() >= TARGET || state.pos >= state.queue.length) return finish();
+    render();
+  }
+
+  function render() {
+    const r = current(); const n = labelledCount();
+    $('label').classList.remove('hidden'); $('done').classList.add('hidden');
+    $('progressText').textContent = `${n} of ${TARGET} labelled`;
+    $('bar').style.width = (100 * n / TARGET) + '%';
+    $('repo').textContent = r.repo;
+    $('url').href = r.url;
+    $('text').textContent = r.text;
+    const existing = state.labels[r.comment_id];
+    $('note').value = existing ? existing.note : '';
+  }
+
+  function choose(label) {
+    const r = current(); if (!r) return;
+    state.labels[r.comment_id] = { label, note: $('note').value.trim() };
+    state.history.push(state.pos);
+    next(true);
+  }
+
+  function back() {
+    if (!state.history.length) return;
+    state.pos = state.history.pop();
+    delete state.labels[state.queue[state.pos]];
+    save(); render();
+  }
+
+  function finish() {
+    $('label').classList.add('hidden'); $('done').classList.remove('hidden');
+    const c = { negative: 0, neutral: 0, positive: 0 };
+    Object.values(state.labels).forEach(l => { if (c[l.label] !== undefined) c[l.label]++; });
+    $('counts').innerHTML =
+      `<span style="color:var(--neg)">Negative: ${c.negative}</span>` +
+      `<span style="color:var(--neu)">Neutral: ${c.neutral}</span>` +
+      `<span style="color:var(--pos)">Positive: ${c.positive}</span>`;
+  }
+
+  function download() {
+    const records = state.queue
+      .filter(id => state.labels[id] && state.labels[id].label !== 'skip' && rowsById[id])
+      .map(id => ({ ...rowsById[id], my_label: state.labels[id].label, note: state.labels[id].note }));
+    const csv = toCSV(records, ['comment_id', 'repo', 'created_at', 'text', 'my_label', 'note']);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'labels_manual.csv'; a.click();
+  }
+
+  function reset() {
+    if (!confirm('Delete all labels and draw a new sample?')) return;
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    location.reload();
+  }
+
+  document.querySelectorAll('.buttons button').forEach(b => b.addEventListener('click', () => choose(b.dataset.label)));
+  $('skip').addEventListener('click', () => choose('skip'));
+  $('back').addEventListener('click', back);
+  $('back2').addEventListener('click', () => { back(); });
+  $('download').addEventListener('click', download);
+  $('reset').addEventListener('click', reset);
+  $('reset2').addEventListener('click', reset);
+
+  document.addEventListener('keydown', e => {
+    if ($('label').classList.contains('hidden') || e.target === $('note')) return;
+    if (e.key === '1') choose('negative');
+    else if (e.key === '2') choose('neutral');
+    else if (e.key === '3') choose('positive');
+    else if (e.key === 'Backspace') { e.preventDefault(); back(); }
+  });
+}
+</script>
+</body>
+</html>
